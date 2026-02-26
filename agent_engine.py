@@ -13,6 +13,7 @@ from db import get_db
 from tools import (
     contar_defeitos, top_defeitos, defeitos_por_turno,
     gerar_grafico, gerar_tabela, gerar_kpi, gerar_dashboard,
+    executar_python,
 )
 
 MODEL = ANTHROPIC_MODEL
@@ -29,6 +30,7 @@ TOOL_MAP = {
     "gerar_tabela": gerar_tabela,
     "gerar_kpi": gerar_kpi,
     "gerar_dashboard": gerar_dashboard,
+    "executar_python": executar_python,
 }
 
 RENDER_TOOLS = {"gerar_grafico", "gerar_tabela", "gerar_kpi", "gerar_dashboard"}
@@ -158,6 +160,29 @@ TOOL_DEFINITIONS = {
             "required": ["titulo", "html"],
         },
     },
+    "executar_python": {
+        "name": "executar_python",
+        "description": (
+            "Executa código Python e devolve o output (stdout). Usa para cálculos, "
+            "análises estatísticas ad-hoc ou processamento de dados. "
+            "Tem acesso a: pandas, math, statistics, json, datetime, collections. "
+            "NÃO tem acesso a: os, sys, subprocess, socket, filesystem."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "codigo": {
+                    "type": "string",
+                    "description": "Código Python a executar. Usa print() para mostrar resultados.",
+                },
+                "descricao": {
+                    "type": "string",
+                    "description": "Descrição breve do que o código calcula (para o utilizador entender).",
+                },
+            },
+            "required": ["codigo"],
+        },
+    },
 }
 
 MAX_HISTORY = 20  # Últimas N mensagens a enviar ao modelo
@@ -184,6 +209,20 @@ async def process_message(user_id: int, conversa_id: int, user_message: str):
     agente = conn.execute(
         "SELECT * FROM agentes WHERE id = ?", (conversa["agente_id"],)
     ).fetchone()
+
+    # Instrução para gerar artifacts HTML/SVG inline no chat
+    artifact_hint = (
+        "\n\nARTIFACTS INLINE: Quando precisares de mostrar uma visualização ou código HTML/SVG "
+        "diretamente no chat (não como dashboard persistente), produz um bloco de código markdown "
+        "com a linguagem 'html' ou 'svg'. Exemplo de HTML com Chart.js:\n"
+        "```html\n"
+        "<!DOCTYPE html><html><head>"
+        "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js'></script>"
+        "</head><body>...</body></html>\n"
+        "```\n"
+        "Usa gerar_dashboard apenas quando o utilizador pede explicitamente um relatório para guardar."
+    )
+    effective_prompt = agente["system_prompt"] + artifact_hint
 
     # Guardar mensagem do user
     now = datetime.utcnow().isoformat()
@@ -217,7 +256,7 @@ async def process_message(user_id: int, conversa_id: int, user_message: str):
             async with client.messages.stream(
                 model=MODEL,
                 max_tokens=4096,
-                system=agente["system_prompt"],
+                system=effective_prompt,
                 messages=messages,
                 tools=tools,
             ) as stream:

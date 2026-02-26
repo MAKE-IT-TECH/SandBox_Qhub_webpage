@@ -126,7 +126,10 @@ def _seed(conn):
         "Chart.js e estilos base. Escreve o conteúdo HTML do <body>: divs, canvas para gráficos, tabelas, KPIs. "
         "Para gráficos Chart.js, usa <canvas id='...'></canvas> seguido de <script>new Chart(...)</script>. "
         "Usa classes CSS disponíveis: .kpi-card, .chart-container, .data-table, .dashboard-grid, .dashboard-row. "
-        "Cria dashboards ricos com múltiplos gráficos, KPIs e tabelas para dar uma visão completa."
+        "Cria dashboards ricos com múltiplos gráficos, KPIs e tabelas para dar uma visão completa.\n\n"
+        "PYTHON AD-HOC (executar_python):\n"
+        "Usa executar_python para cálculos estatísticos, análises numéricas ou processamento de dados que não "
+        "possam ser feitos com as outras ferramentas. Escreve código Python claro, usa print() para mostrar resultados."
     )
 
     conn.execute(
@@ -138,7 +141,7 @@ def _seed(conn):
         (
             "Análise",
             analise_prompt,
-            json.dumps(["contar_defeitos", "top_defeitos", "defeitos_por_turno", "gerar_grafico", "gerar_tabela", "gerar_kpi", "gerar_dashboard"]),
+            json.dumps(["contar_defeitos", "top_defeitos", "defeitos_por_turno", "gerar_grafico", "gerar_tabela", "gerar_kpi", "gerar_dashboard", "executar_python"]),
         ),
     )
 

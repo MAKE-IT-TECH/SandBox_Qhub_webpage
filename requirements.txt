@@ -4,3 +4,6 @@ anthropic
 pyjwt
 bcrypt
 python-dotenv
+pandas
+openpyxl
+python-multipart

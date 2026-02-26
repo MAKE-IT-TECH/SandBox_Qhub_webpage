@@ -2,10 +2,12 @@
 FastAPI — endpoints API + serve frontend.
 """
 
+import io
 import json
 
 import bcrypt
-from fastapi import FastAPI, Request, HTTPException, Depends
+import pandas as pd
+from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime
@@ -171,6 +173,77 @@ async def enviar_mensagem(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# --- Upload de ficheiros ---
+
+@app.post("/conversas/{conversa_id}/upload")
+async def upload_ficheiro(
+    conversa_id: int,
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    nome = file.filename or ""
+    ext = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
+    if ext not in ("csv", "xlsx"):
+        raise HTTPException(status_code=400, detail="Apenas ficheiros .csv e .xlsx são suportados")
+
+    conn = get_db()
+    conversa = conn.execute(
+        "SELECT id FROM conversas WHERE id = ? AND user_id = ?",
+        (conversa_id, user["user_id"]),
+    ).fetchone()
+    if not conversa:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+
+    content = await file.read()
+    try:
+        if ext == "csv":
+            df = pd.read_csv(io.BytesIO(content))
+        else:
+            df = pd.read_excel(io.BytesIO(content), engine="openpyxl")
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"Erro ao processar ficheiro: {e}")
+
+    n_linhas = len(df)
+    colunas = list(df.columns)
+
+    preview_csv = df.head(10).to_csv(index=False)
+    dados_csv = df.head(100).to_csv(index=False)
+
+    try:
+        stats_str = df.describe().to_string()
+    except Exception:
+        stats_str = "(sem estatísticas disponíveis)"
+
+    cat_info = []
+    for col in df.select_dtypes(include="object").columns[:5]:
+        top = df[col].value_counts().head(5).to_dict()
+        cat_info.append(f"  {col}: {top}")
+    cat_str = "\n".join(cat_info) if cat_info else "(sem colunas categóricas)"
+
+    msg_content = (
+        f"[FICHEIRO CARREGADO: {nome}]\n"
+        f"Colunas: {', '.join(str(c) for c in colunas)}\n"
+        f"Registos: {n_linhas}\n\n"
+        f"Primeiras 10 linhas:\n{preview_csv}\n\n"
+        f"Estatísticas numéricas:\n{stats_str}\n\n"
+        f"Distribuição das colunas categóricas (top 5):\n{cat_str}\n\n"
+        f"Dados completos (primeiras 100 linhas):\n{dados_csv}"
+    )
+
+    now = datetime.utcnow().isoformat()
+    cursor = conn.execute(
+        "INSERT INTO mensagens (conversa_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+        (conversa_id, "user", msg_content, now),
+    )
+    conn.commit()
+    msg_id = cursor.lastrowid
+    conn.close()
+
+    return {"mensagem_id": msg_id, "resumo": f"Ficheiro '{nome}' carregado com {n_linhas} linhas"}
 
 
 # --- Dashboards ---

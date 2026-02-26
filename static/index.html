@@ -44,11 +44,14 @@
 
         /* Input */
         .input-area { padding: 16px 20px; background: #fff; border-top: 1px solid #e0e0e0; display: flex; gap: 10px; }
-        .input-area input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; }
-        .input-area input:focus { border-color: #1a73e8; }
+        .input-area input[type="text"] { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; }
+        .input-area input[type="text"]:focus { border-color: #1a73e8; }
         .input-area button { padding: 10px 20px; background: #1a73e8; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
         .input-area button:hover { background: #1557b0; }
         .input-area button:disabled { background: #ccc; cursor: not-allowed; }
+        .attach-btn { padding: 10px 12px; background: #f0f0f0; color: #555; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; font-size: 16px; }
+        .attach-btn:hover { background: #e0e0e0; }
+        .attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
         /* Login */
         .login-overlay { position: fixed; inset: 0; background: #1a1a2e; display: flex; align-items: center; justify-content: center; z-index: 100; }
@@ -84,6 +87,17 @@
         .dashboard-bar .dash-actions button:hover, .dashboard-bar .dash-actions a:hover { background: rgba(255,255,255,0.3); }
         .dashboard-iframe { width: 100%; border: none; min-height: 200px; max-height: 800px; transition: height 0.2s ease; display: block; }
         .dashboard-iframe.collapsed { display: none; }
+        .widget-artifact { align-self: flex-start; margin: 8px 0; width: 100%; max-width: 95%; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden; background: #fff; }
+        .artifact-bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0; }
+        .artifact-lang { font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: 0.6px; background: #e8eaf0; padding: 2px 8px; border-radius: 4px; }
+        .artifact-actions { display: flex; gap: 6px; }
+        .artifact-actions button { padding: 4px 10px; font-size: 12px; border: 1px solid #ddd; border-radius: 5px; cursor: pointer; background: #fff; color: #333; }
+        .artifact-actions button:hover { background: #f0f0f0; }
+        .artifact-actions .open-btn { color: #1a73e8; border-color: #1a73e8; }
+        .artifact-actions .open-btn:hover { background: #e8f0fe; }
+        .artifact-iframe { width: 100%; height: 400px; border: none; display: block; }
+        .artifact-code { padding: 14px; background: #1e1e2e; }
+        .artifact-code pre { color: #cdd6f4; font-size: 12px; white-space: pre-wrap; word-break: break-all; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; margin: 0; }
 
         /* Admin Panel */
         .admin-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
@@ -183,6 +197,8 @@
                 <div class="empty-state">Seleciona um agente para começar</div>
             </div>
             <div class="input-area">
+                <input type="file" id="fileInput" accept=".csv,.xlsx" style="display:none" onchange="uploadFile()">
+                <button class="attach-btn" id="attachBtn" onclick="document.getElementById('fileInput').click()" disabled title="Carregar ficheiro CSV ou Excel">📎</button>
                 <input type="text" id="msgInput" placeholder="Escreve uma mensagem..." onkeydown="if(event.key==='Enter')sendMsg()" disabled>
                 <button id="sendBtn" onclick="sendMsg()" disabled>Enviar</button>
             </div>
@@ -369,6 +385,7 @@
                 const reader = res.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
+                let accText = '';
 
                 while (true) {
                     const {value, done} = await reader.read();
@@ -383,6 +400,7 @@
                         try {
                             const evt = JSON.parse(line.slice(6));
                             if (evt.type === 'text') {
+                                accText += evt.content;
                                 assistantEl.textContent += evt.content;
                                 scrollDown();
                             } else if (evt.type === 'chart') {
@@ -402,6 +420,7 @@
                         } catch (_) {}
                     }
                 }
+                postProcessArtifacts(assistantEl, accText);
             } catch (e) {
                 addMessage('error', 'Erro de ligação: ' + e.message);
             }
@@ -526,6 +545,99 @@
                 iframe.classList.add('collapsed');
                 btn.textContent = '▶';
             }
+        }
+
+        // --- Artifact Renderer ---
+
+        function postProcessArtifacts(el, text) {
+            const ARTIFACT_RE = /```(html|svg|jsx)\n([\s\S]*?)```/g;
+            if (!ARTIFACT_RE.test(text)) return;
+            ARTIFACT_RE.lastIndex = 0;
+
+            el.textContent = '';
+            let lastIndex = 0;
+            let match;
+            while ((match = ARTIFACT_RE.exec(text)) !== null) {
+                const before = text.slice(lastIndex, match.index);
+                if (before.trim()) {
+                    const div = document.createElement('div');
+                    div.style.whiteSpace = 'pre-wrap';
+                    div.textContent = before;
+                    el.appendChild(div);
+                }
+                el.appendChild(createArtifactWidget(match[1], match[2].trim()));
+                lastIndex = match.index + match[0].length;
+            }
+            const after = text.slice(lastIndex);
+            if (after.trim()) {
+                const div = document.createElement('div');
+                div.style.whiteSpace = 'pre-wrap';
+                div.textContent = after;
+                el.appendChild(div);
+            }
+            scrollDown();
+        }
+
+        function createArtifactWidget(lang, code) {
+            const id = 'art-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+            const container = document.createElement('div');
+            container.className = 'widget-artifact';
+
+            let srcdoc = null;
+            if (lang === 'svg') {
+                srcdoc = `<!DOCTYPE html><html><body style="margin:0;background:#fff">${code}</body></html>`;
+            } else if (lang === 'html') {
+                srcdoc = code.trimStart().startsWith('<!') ? code :
+                    `<!DOCTYPE html><html><head><script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"><\/script></head><body>${code}</body></html>`;
+            }
+
+            const canRender = srcdoc !== null;
+            const displayLang = lang === 'jsx' ? 'JSX' : lang.toUpperCase();
+
+            container.innerHTML = `
+                <div class="artifact-bar">
+                    <span class="artifact-lang">${escapeHtml(displayLang)}</span>
+                    <div class="artifact-actions">
+                        ${canRender ? `<button onclick="toggleArtifactView('${id}')">Código</button>` : ''}
+                        ${canRender ? `<button class="open-btn" onclick="openArtifactTab('${id}')">↗ Abrir</button>` : ''}
+                    </div>
+                </div>
+                ${canRender ? `<div id="art-render-${id}"><iframe id="art-iframe-${id}" srcdoc="" sandbox="allow-scripts" class="artifact-iframe"></iframe></div>` : ''}
+                <div id="art-code-${id}" class="${canRender ? 'artifact-code hidden' : 'artifact-code'}">
+                    <pre>${escapeHtml(code)}</pre>
+                </div>
+            `;
+
+            if (canRender) {
+                requestAnimationFrame(() => {
+                    const iframe = document.getElementById('art-iframe-' + id);
+                    if (iframe) iframe.srcdoc = srcdoc;
+                });
+            }
+
+            return container;
+        }
+
+        function toggleArtifactView(id) {
+            const renderEl = document.getElementById('art-render-' + id);
+            const codeEl = document.getElementById('art-code-' + id);
+            const btn = renderEl.previousElementSibling.querySelector('button');
+            if (codeEl.classList.contains('hidden')) {
+                codeEl.classList.remove('hidden');
+                renderEl.classList.add('hidden');
+                if (btn) btn.textContent = 'Render';
+            } else {
+                codeEl.classList.add('hidden');
+                renderEl.classList.remove('hidden');
+                if (btn) btn.textContent = 'Código';
+            }
+        }
+
+        function openArtifactTab(id) {
+            const iframe = document.getElementById('art-iframe-' + id);
+            if (!iframe || !iframe.srcdoc) return;
+            const blob = new Blob([iframe.srcdoc], {type: 'text/html'});
+            window.open(URL.createObjectURL(blob), '_blank');
         }
 
         window.addEventListener('message', function(e) {
@@ -897,6 +1009,43 @@
             el.innerHTML = html;
         }
 
+        // --- Upload de Ficheiros ---
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file || !currentConversa) return;
+
+            setInputEnabled(false);
+            const processingMsg = addMessage('tool', `📎 A processar ${file.name}...`);
+            scrollDown();
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                const res = await fetch(API + `/conversas/${currentConversa}/upload`, {
+                    method: 'POST',
+                    headers: authHeaders(),
+                    body: formData,
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    processingMsg.textContent = `❌ Erro: ${data.detail || 'Erro ao carregar ficheiro'}`;
+                    processingMsg.className = 'msg error';
+                } else {
+                    processingMsg.textContent = `📎 ${data.resumo}`;
+                    document.getElementById('msgInput').focus();
+                }
+            } catch (e) {
+                processingMsg.textContent = `❌ Erro de ligação: ${e.message}`;
+                processingMsg.className = 'msg error';
+            }
+
+            fileInput.value = '';
+            setInputEnabled(true);
+            scrollDown();
+        }
+
         // --- UI Helpers ---
 
         function addMessage(role, text) {
@@ -928,6 +1077,7 @@
         function setInputEnabled(enabled) {
             document.getElementById('msgInput').disabled = !enabled;
             document.getElementById('sendBtn').disabled = !enabled;
+            document.getElementById('attachBtn').disabled = !enabled;
         }
 
         function authHeaders() {

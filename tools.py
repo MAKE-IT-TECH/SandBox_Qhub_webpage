@@ -4,6 +4,9 @@ Tools que consultam o CSV de defeitos de pintura e geram visualizações.
 
 import csv
 import os
+import subprocess
+import sys
+import tempfile
 from collections import Counter
 
 DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "defeitos.csv")
@@ -101,3 +104,40 @@ def gerar_dashboard(titulo: str, html: str):
         "titulo": titulo,
         "html": html,
     }
+
+
+def executar_python(codigo: str, descricao: str = "") -> dict:
+    """Executa código Python num subprocess isolado (timeout 30s)."""
+    BLOQUEADOS = [
+        "import os", "import sys", "import subprocess", "import socket",
+        "open(", "__import__", "exec(", "eval(", "compile(",
+    ]
+    for b in BLOQUEADOS:
+        if b in codigo:
+            return {"erro": f"Operação não permitida: '{b}' está bloqueado por segurança.", "sucesso": False}
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
+            f.write(codigo)
+            tmp_path = f.name
+
+        result = subprocess.run(
+            [sys.executable, tmp_path],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+        if result.returncode != 0:
+            return {"erro": result.stderr[:2000], "codigo_saida": result.returncode, "sucesso": False}
+
+        return {"output": result.stdout[:5000], "sucesso": True}
+
+    except subprocess.TimeoutExpired:
+        return {"erro": "Timeout: a execução excedeu 30 segundos.", "sucesso": False}
+    except Exception as e:
+        return {"erro": str(e), "sucesso": False}
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
