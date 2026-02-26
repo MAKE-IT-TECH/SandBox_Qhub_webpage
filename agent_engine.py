@@ -3,19 +3,19 @@ Core de agentes: system prompts, tool dispatch, streaming via SSE.
 """
 
 import json
-import os
 import uuid
 from datetime import datetime
 
 import anthropic
 
+from config import ANTHROPIC_MODEL
 from db import get_db
 from tools import (
     contar_defeitos, top_defeitos, defeitos_por_turno,
     gerar_grafico, gerar_tabela, gerar_kpi, gerar_dashboard,
 )
 
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+MODEL = ANTHROPIC_MODEL
 
 client = anthropic.AsyncAnthropic()
 

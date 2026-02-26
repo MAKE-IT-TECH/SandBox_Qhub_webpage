@@ -2,13 +2,11 @@
 Autenticação simples com JWT.
 """
 
-import os
 import bcrypt
 import jwt
 from datetime import datetime, timedelta
 from db import get_db
-
-SECRET_KEY = os.environ.get("JWT_SECRET", "qhub-poc-secret-mude-em-producao")
+from config import JWT_SECRET, JWT_EXPIRY_HOURS
 
 
 def authenticate(email: str, password: str) -> dict | None:
@@ -27,9 +25,9 @@ def authenticate(email: str, password: str) -> dict | None:
             "user_id": user["id"],
             "nome": user["nome"],
             "role": user["role"],
-            "exp": datetime.utcnow() + timedelta(hours=8),
+            "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
         },
-        SECRET_KEY,
+        JWT_SECRET,
         algorithm="HS256",
     )
     return {"token": token, "nome": user["nome"], "role": user["role"]}
@@ -38,6 +36,6 @@ def authenticate(email: str, password: str) -> dict | None:
 def verify_token(token: str) -> dict | None:
     """Verifica e descodifica um JWT. Devolve payload ou None."""
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
         return None
